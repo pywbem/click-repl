@@ -29,6 +29,43 @@ else:
     from collections import Iterable, Mapping
 
 
+# FUTURE: Remove this and all references before finished
+verbose = True
+
+def debug_log(msg, pp=None):
+    """
+    Write a debug log entry for debugging test functions to a file named
+    "debug.log".
+
+    The timestamp and name of the calling function are automatically added
+    to the message.
+    """
+    if not verbose:
+        return
+
+    import inspect
+    from datetime import datetime
+    import pprint
+
+    def ensure_unicode(obj):
+        """
+        If the input object is a string, make sure it is returned as a Unicode
+        string, as follows:
+        """
+        if isinstance(obj, bytes):
+            return obj.decode("utf-8")
+        return obj
+
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    caller = inspect.stack()[1][3]
+    if pp:
+        assert isinstance(pp, (dict))
+        ppmsg = pprint.pformat(pp)
+        msg = f"{msg}\n{ppmsg}"
+    with open("debug.log", "a", encoding='utf-8') as fp:
+        fp.write(ensure_unicode(f"{timestamp} {caller}: {msg}\n"))
+
+
 def _resolve_context(args, ctx=None):
     """Produce the context hierarchy starting with the command and
     traversing the complete arguments. This only follows the commands,

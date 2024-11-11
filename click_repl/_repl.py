@@ -1,7 +1,8 @@
 from __future__ import with_statement
 
-import click
 import sys
+import click
+import shlex
 from prompt_toolkit.history import InMemoryHistory
 
 from ._completer import ClickCompleter
@@ -10,6 +11,7 @@ from .exceptions import CommandLineParserError, ExitReplException, InvalidGroupF
 from .utils import _execute_internal_and_sys_cmds
 from .core import ReplContext
 from .globals_ import ISATTY, get_current_repl_ctx
+from .utils import debug_log  # KS REMOVE
 
 
 __all__ = ["bootstrap_prompt", "register_repl", "repl"]
@@ -38,7 +40,10 @@ def bootstrap_prompt(
 
 
 def repl(
-    old_ctx, prompt_kwargs={}, allow_system_commands=True, allow_internal_commands=True
+    old_ctx, prompt_kwargs={}, allow_system_commands=True,
+    allow_internal_commands=True, allow_general_options=False
+    # pylint: disable=dangerous-default-value, too-many-locals
+    # pylint: too-many-statements, too-many-branches
 ):
     """
     Start an interactive shell. All subcommands are available in it.
@@ -50,7 +55,7 @@ def repl(
     If stdin is not a TTY, no prompt will be printed, but only commands read
     from stdin.
     """
-
+    debug_log(f"repl enter {prompt_kwargs=}")  # KS REMOVE
     group_ctx = old_ctx
     # Switching to the parent context that has a Group as its command
     # as a Group acts as a CLI for all of its subcommands
@@ -86,6 +91,8 @@ def repl(
         }
     else:
         available_commands = group_ctx.command.commands
+
+    debug_log(f"{available_commands=}")  # KS REMOVE
 
     original_command = available_commands.pop(repl_command_name, None)
 
@@ -135,21 +142,42 @@ def repl(
             except ExitReplException:
                 break
 
-            try:
-                # The group command will dispatch based on args.
-                old_protected_args = group_ctx.protected_args
+            if allow_general_options:
                 try:
-                    group_ctx.protected_args = args
-                    group.invoke(group_ctx)
-                finally:
-                    group_ctx.protected_args = old_protected_args
-            except click.ClickException as e:
-                e.show()
-            except (ClickExit, SystemExit):
-                pass
+                    args = shlex.split(command)
+                    debug_log(f"repl 144, {command=}, {args=}")
+                except ValueError as ve:
+                    raise CommandLineParserError("{}".format(ve))
 
-            except ExitReplException:
-                break
+                try:
+                    with group.make_context(None, args, parent=group_ctx) as ctx:
+                        debug_log(f"group_make_context line 151, {args=}",
+                                  pp=ctx.__dict__)
+                        group.invoke(ctx)
+                        ctx.exit()
+                except click.ClickException as ec:
+                    ec.show()
+                except (ClickExit, SystemExit):
+                    pass
+                except ExitReplException:
+                    break
+            else:
+                try:
+                    # The group command will dispatch based on args.
+                    old_protected_args = group_ctx.protected_args
+                    try:
+                        group_ctx.protected_args = args
+                        debug_log(f"l170 {args=} {old_protected_args=} group_ctx=\n", pp=group_ctx.__dict__)
+                        group.invoke(group_ctx)
+                    finally:
+                        group_ctx.protected_args = old_protected_args
+                except click.ClickException as ec:
+                    ec.show()
+                except (ClickExit, SystemExit):
+                    pass
+
+                except ExitReplException:
+                    break
 
     if original_command is not None:
         available_commands[repl_command_name] = original_command
